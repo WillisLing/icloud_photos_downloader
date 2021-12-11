@@ -70,13 +70,14 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
     type=click.Choice(["original", "medium", "thumb"]),
     default="original",
 )
-@click.option("--live-photo-force-video-name-as-image",
-              help="Force the Live Photo video filename same as image filename. "
-              "In some case, image filename is IMG_1111.HEIC, and video filename is "
-              "IMG_1111_HEVC.MOV, in order to let Live Photo work well in some image viewer, "
-              "the video filename should be IMG_1111.MOV",
-              is_flag=True,
-              )
+@click.option(
+    "--live-photo-force-video-name-as-image",
+    help="Force the Live Photo video filename same as image filename. "
+    "In some case, image filename is IMG_1111.HEIC, and video filename is "
+    "IMG_1111_HEVC.MOV, in order to let Live Photo work well in some image viewer, "
+    "the video filename should be IMG_1111.MOV",
+    is_flag=True,
+)
 @click.option(
     "--recent",
     help="Number of recent photos to download (default: download all photos)",
@@ -447,7 +448,7 @@ def main(
             download_size = "original"
 
         download_path = local_download_path(
-            photo, download_size, download_dir)
+            photo.filename, download_size, download_dir)
 
         file_exists = os.path.isfile(download_path)
         if not file_exists and download_size == "original":
