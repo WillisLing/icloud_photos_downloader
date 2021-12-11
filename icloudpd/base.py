@@ -2,6 +2,7 @@
 """Main script that uses Click to parse command-line arguments"""
 from __future__ import print_function
 import os
+from pathlib import Path
 import sys
 import time
 import datetime
@@ -22,7 +23,7 @@ from icloudpd import download
 from icloudpd.email_notifications import send_2sa_notification
 from icloudpd.string_helpers import truncate_middle
 from icloudpd.autodelete import autodelete_photos
-from icloudpd.paths import local_download_path
+from icloudpd.paths import path_by_modify_stem, local_download_path
 from icloudpd import exif_datetime
 # Must import the constants object so that we can mock values in tests.
 from icloudpd import constants
@@ -69,6 +70,13 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
     type=click.Choice(["original", "medium", "thumb"]),
     default="original",
 )
+@click.option("--live-photo-force-video-name-as-image",
+              help="Force the Live Photo video filename same as image filename. "
+              "In some case, image filename is IMG_1111.HEIC, and video filename is "
+              "IMG_1111_HEVC.MOV, in order to let Live Photo work well in some image viewer, "
+              "the video filename should be IMG_1111.MOV",
+              is_flag=True,
+              )
 @click.option(
     "--recent",
     help="Number of recent photos to download (default: download all photos)",
@@ -203,6 +211,7 @@ def main(
         cookie_directory,
         size,
         live_photo_size,
+        live_photo_force_video_name_as_image,
         recent,
         until_found,
         album,
@@ -430,8 +439,7 @@ def main(
 
         if size not in versions and size != "original":
             if force_size:
-                filename = photo.filename.encode(
-                    "utf-8").decode("ascii", "ignore")
+                filename = photo.filename
                 logger.set_tqdm_description(
                     "%s size does not exist for %s. Skipping..." %
                     (size, filename), logging.ERROR, )
@@ -446,9 +454,8 @@ def main(
             # Deprecation - We used to download files like IMG_1234-original.jpg,
             # so we need to check for these.
             # Now we match the behavior of iCloud for Windows: IMG_1234.jpg
-            original_download_path = ("-%s." % size).join(
-                download_path.rsplit(".", 1)
-            )
+            original_download_path = path_by_modify_stem(
+                download_path, lambda x: f"{x}-{size}")
             file_exists = os.path.isfile(original_download_path)
 
         if file_exists:
@@ -457,9 +464,8 @@ def main(
             version = photo.versions[download_size]
             photo_size = version["size"]
             if file_size != photo_size:
-                download_path = ("-%s." % photo_size).join(
-                    download_path.rsplit(".", 1)
-                )
+                download_path = path_by_modify_stem(
+                    download_path, lambda x: f"{x}-{photo_size}")
                 logger.set_tqdm_description(
                     "%s deduplicated." % truncate_middle(download_path, 96)
                 )
@@ -506,13 +512,11 @@ def main(
             lp_size = live_photo_size + "Video"
             if lp_size in photo.versions:
                 version = photo.versions[lp_size]
-                filename = version["filename"]
-                if live_photo_size != "original":
-                    # Add size to filename if not original
-                    filename = filename.replace(
-                        ".MOV", "-%s.MOV" %
-                        live_photo_size)
-                lp_download_path = os.path.join(download_dir, filename)
+                lp_fname = version["filename"]
+                filename = path_by_modify_stem(lp_fname, lambda _: Path(
+                    photo.filename).stem) if live_photo_force_video_name_as_image else lp_fname
+                lp_download_path = local_download_path(
+                    filename, live_photo_size, download_dir)
 
                 lp_file_exists = os.path.isfile(lp_download_path)
 
@@ -523,9 +527,8 @@ def main(
                         lp_file_size = os.stat(lp_download_path).st_size
                         lp_photo_size = version["size"]
                         if lp_file_size != lp_photo_size:
-                            lp_download_path = ("-%s." % lp_photo_size).join(
-                                lp_download_path.rsplit(".", 1)
-                            )
+                            lp_download_path = path_by_modify_stem(
+                                lp_download_path, lambda x: f"{x}-{lp_photo_size}")
                             logger.set_tqdm_description(
                                 "%s deduplicated." %
                                 truncate_middle(
