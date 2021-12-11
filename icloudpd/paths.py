@@ -19,7 +19,7 @@ def filename_with_size(filename: str, size: str) -> str:
 
 
 def path_by_modify_stem(path: str, func: Callable[[str], str]) -> str:
-    """Returns the filename with modified stem, e.g.
+    """Returns the path with modified stem, e.g.
     1. ("IMG1234.jpg", lambda x: f"{x}-small")  =>  "IMG1234-small.jpg"
     2. ("/path/to/IMG1234.jpg", lambda x: f"{x}-small")  =>  "/path/to/IMG1234-small.jpg"
     3. ("relative/to/IMG1234.jpg", lambda x: f"{x}-small")  =>  "relative/to/IMG1234-small.jpg"
@@ -28,3 +28,7 @@ def path_by_modify_stem(path: str, func: Callable[[str], str]) -> str:
     new_stem = func(obj.stem)
     obj = obj.with_stem(new_stem)
     return str(obj)
+
+def path_by_replace_stem(path: str, new_stem: str) -> str:
+    """Returns the path with replaced stem"""
+    return path_by_modify_stem(path, lambda _: new_stem)

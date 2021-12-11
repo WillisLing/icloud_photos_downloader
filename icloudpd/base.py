@@ -23,7 +23,7 @@ from icloudpd import download
 from icloudpd.email_notifications import send_2sa_notification
 from icloudpd.string_helpers import truncate_middle
 from icloudpd.autodelete import autodelete_photos
-from icloudpd.paths import path_by_modify_stem, local_download_path
+from icloudpd.paths import path_by_modify_stem, local_download_path, path_by_replace_stem
 from icloudpd import exif_datetime
 # Must import the constants object so that we can mock values in tests.
 from icloudpd import constants
@@ -514,7 +514,7 @@ def main(
             if lp_size in photo.versions:
                 version = photo.versions[lp_size]
                 lp_fname = version["filename"]
-                filename = path_by_modify_stem(lp_fname, lambda _: Path(
+                filename = path_by_replace_stem(lp_fname, Path(
                     photo.filename).stem) if live_photo_force_video_name_as_image else lp_fname
                 lp_download_path = local_download_path(
                     filename, live_photo_size, download_dir)

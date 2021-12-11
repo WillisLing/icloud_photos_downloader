@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from tzlocal import get_localzone
 from icloudpd.logger import setup_logger
-from icloudpd.paths import local_download_path, path_by_modify_stem
+from icloudpd.paths import local_download_path, path_by_replace_stem
 
 
 def autodelete_photos(icloud, folder_structure, directory):
@@ -30,20 +30,19 @@ def autodelete_photos(icloud, folder_structure, directory):
                 local_download_path(
                     media.filename, size, download_dir))
             if os.path.exists(path):
-                logger.info("Deleting %s!", path)
-                os.remove(path)
-            
+                logger.info("Deleting %s !", path)
+                os.remove(path)            
             # Live Photo video part
             lp_size = size + "Video"
             if lp_size in media.versions:
                 version = media.versions[lp_size]
                 lp_fname = version["filename"]
-                filename = path_by_modify_stem(lp_fname, lambda _: Path(
+                filename = path_by_replace_stem(lp_fname, Path(
                     media.filename).stem)
-                for fn in [filename, lp_fname]:
+                for enum_fn in [filename, lp_fname]:
                     lp_path = os.path.normpath(
                         local_download_path(
-                            fn, size, download_dir))
+                            enum_fn, size, download_dir))
                     if os.path.exists(lp_path):
-                        logger.info("Deleting %s!", lp_path)
+                        logger.info("Deleting %s !", lp_path)
                         os.remove(lp_path)
