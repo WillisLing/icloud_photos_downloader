@@ -26,7 +26,7 @@ def path_by_modify_stem(path: str, func: Callable[[str], str]) -> str:
     """
     obj = Path(path)
     new_stem = func(obj.stem)
-    obj = obj.with_stem(new_stem)
+    obj = obj.with_name(new_stem + obj.suffix)
     return str(obj)
 
 def path_by_replace_stem(path: str, new_stem: str) -> str:
