@@ -30,8 +30,8 @@ def autodelete_photos(icloud, folder_structure, directory):
                 local_download_path(
                     media.filename, size, download_dir))
             if os.path.exists(path):
-                logger.info("Deleting %s !", path)
-                os.remove(path)            
+                logger.info("Deleting %s!", path)
+                os.remove(path)
             # Live Photo video part
             lp_size = size + "Video"
             if lp_size in media.versions:

@@ -23,7 +23,7 @@ from icloudpd import download
 from icloudpd.email_notifications import send_2sa_notification
 from icloudpd.string_helpers import truncate_middle
 from icloudpd.autodelete import autodelete_photos
-from icloudpd.paths import path_by_modify_stem, local_download_path, path_by_replace_stem
+from icloudpd.paths import patchPhotoAsset, path_by_modify_stem, local_download_path, path_by_replace_stem
 from icloudpd import exif_datetime
 # Must import the constants object so that we can mock values in tests.
 from icloudpd import constants
@@ -236,6 +236,8 @@ def main(
         threads_num,    # pylint: disable=W0613
 ):
     """Download all iCloud photos to a local directory"""
+
+    patchPhotoAsset()
 
     logger = setup_logger()
     if only_print_filenames:
