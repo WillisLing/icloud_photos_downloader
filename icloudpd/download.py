@@ -54,8 +54,6 @@ def download_media(icloud, photo, download_path, size):
                     for chunk in photo_response.iter_content(chunk_size=1024):
                         if chunk:
                             file_obj.write(chunk)
-                if os.stat(temp_download_path).st_size != photo.size:
-                    raise ConnectionError("Download error, file is corrupt")
                 os.rename(temp_download_path, download_path)
                 update_mtime(photo, download_path)
                 return True
