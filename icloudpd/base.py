@@ -10,6 +10,7 @@ import logging
 import itertools
 import subprocess
 import json
+import urllib
 import click
 
 from tqdm import tqdm
@@ -18,18 +19,19 @@ from tzlocal import get_localzone
 from pyicloud_ipd.exceptions import PyiCloudAPIResponseError
 
 from icloudpd.logger import setup_logger
-from icloudpd.authentication import authenticate, TwoStepAuthRequiredError
+from icloudpd.authentication import authenticator, TwoStepAuthRequiredError
 from icloudpd import download
 from icloudpd.email_notifications import send_2sa_notification
 from icloudpd.string_helpers import truncate_middle
 from icloudpd.autodelete import autodelete_photos
-from icloudpd.paths import patchPhotoAsset, path_by_modify_stem, local_download_path, path_by_replace_stem
+from icloudpd.paths import clean_filename, local_download_path
+from icloudpd.paths import patchPhotoAsset, path_by_modify_stem, path_by_replace_stem
 from icloudpd import exif_datetime
 # Must import the constants object so that we can mock values in tests.
 from icloudpd import constants
 from icloudpd.counter import Counter
 
-CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
+CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 
 @click.command(context_settings=CONTEXT_SETTINGS, options_metavar="<options>")
@@ -97,7 +99,7 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 )
 @click.option(
     "-l", "--list-albums",
-    help="Lists the avaliable albums",
+    help="Lists the available albums",
     is_flag=True,
 )
 @click.option(
@@ -180,6 +182,12 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
     metavar="<notification_email>",
 )
 @click.option(
+    "--notification-email-from",
+    help="Email address from which you would like to receive email notifications. "
+    "Default: SMTP username or notification-email",
+    metavar="<notification_email_from>",
+)
+@click.option(
     "--notification-script",
     type=click.Path(),
     help="Runs an external script when two factor authentication expires. "
@@ -201,6 +209,19 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
     help="Number of cpu threads -- deprecated. To be removed in future version",
     type=click.IntRange(1),
     default=1,
+)
+@click.option(
+    "--delete-after-download",
+    help='Delete the photo/video after download it.'
+    + ' The deleted items will be appear in the "Recently Deleted".'
+    + ' Therefore, should not combine with --auto-delete option.',
+    is_flag=True,
+)
+@click.option(
+    "--domain",
+    help="What iCloud root domain to use. Use 'cn' for mainland China (default: 'com')",
+    type=click.Choice(["com", "cn"]),
+    default="com",
 )
 @click.version_option()
 # pylint: disable-msg=too-many-arguments,too-many-statements
@@ -230,10 +251,13 @@ def main(
         smtp_port,
         smtp_no_tls,
         notification_email,
+        notification_email_from,
         log_level,
         no_progress_bar,
         notification_script,
         threads_num,    # pylint: disable=W0613
+        delete_after_download,
+        domain
 ):
     """Download all iCloud photos to a local directory"""
 
@@ -258,13 +282,17 @@ def main(
         print('--directory or --list-albums are required')
         sys.exit(2)
 
+    if auto_delete and delete_after_download:
+        print('--auto-delete and --delete-after-download are mutually exclusive')
+        sys.exit(2)
+
     raise_error_on_2sa = (
         smtp_username is not None
         or notification_email is not None
         or notification_script is not None
     )
     try:
-        icloud = authenticate(
+        icloud = authenticator(domain)(
             username,
             password,
             cookie_directory,
@@ -282,6 +310,7 @@ def main(
                 smtp_port,
                 smtp_no_tls,
                 notification_email,
+                notification_email_from,
             )
         sys.exit(1)
 
@@ -323,7 +352,7 @@ def main(
                 "Session error, re-authenticating...",
                 logging.ERROR)
             if retries > 1:
-                # If the first reauthentication attempt failed,
+                # If the first re-authentication attempt failed,
                 # start waiting a few seconds before retrying in case
                 # there are some issues with the Apple servers
                 time.sleep(constants.WAIT_SECONDS * retries)
@@ -364,7 +393,7 @@ def main(
     tqdm_kwargs["ascii"] = True
 
     # Skip the one-line progress bar if we're only printing the filenames,
-    # or if the progress bar is explicity disabled,
+    # or if the progress bar is explicitly disabled,
     # or if this is not a terminal (e.g. cron or piping output to file)
     if not os.environ.get("FORCE_TQDM") and (
             only_print_filenames or no_progress_bar or not sys.stdout.isatty()
@@ -377,23 +406,24 @@ def main(
 
     def download_photo(counter, photo):
         """internal function for actually downloading the photos"""
+        filename = clean_filename(photo.filename)
         if skip_videos and photo.item_type != "image":
             logger.set_tqdm_description(
-                "Skipping %s, only downloading photos." % photo.filename
+                f"Skipping {filename}, only downloading photos."
             )
             return
-        if photo.item_type != "image" and photo.item_type != "movie":
+        if photo.item_type not in ("image", "movie"):
             logger.set_tqdm_description(
-                "Skipping %s, only downloading photos and videos. "
-                "(Item type was: %s)" % (photo.filename, photo.item_type)
+                f"Skipping {filename}, only downloading photos and videos. "
+                f"(Item type was: {photo.item_type})"
             )
             return
         try:
             created_date = photo.created.astimezone(get_localzone())
         except (ValueError, OSError):
             logger.set_tqdm_description(
-                "Could not convert photo created date to local timezone (%s)" %
-                photo.created, logging.ERROR)
+                f"Could not convert photo created date to local timezone ({photo.created})",
+                logging.ERROR)
             created_date = photo.created
 
         try:
@@ -404,8 +434,7 @@ def main(
         except ValueError:  # pragma: no cover
             # This error only seems to happen in Python 2
             logger.set_tqdm_description(
-                "Photo created date was not valid (%s)" %
-                photo.created, logging.ERROR)
+                f"Photo created date was not valid ({photo.created})", logging.ERROR)
             # e.g. ValueError: year=5 is before 1900
             # (https://github.com/icloud-photos-downloader/icloud_photos_downloader/issues/122)
             # Just use the Unix epoch
@@ -419,9 +448,9 @@ def main(
             versions = photo.versions
         except KeyError as ex:
             print(
-                "KeyError: %s attribute was not found in the photo fields!" %
-                ex)
-            with open('icloudpd-photo-error.json', 'w') as outfile:
+                f"KeyError: {ex} attribute was not found in the photo fields!"
+            )
+            with open(file='icloudpd-photo-error.json', mode='w', encoding='utf8') as outfile:
                 # pylint: disable=protected-access
                 json.dump({
                     "master_record": photo._master_record,
@@ -442,16 +471,15 @@ def main(
 
         if size not in versions and size != "original":
             if force_size:
-                filename = photo.filename
                 logger.set_tqdm_description(
-                    "%s size does not exist for %s. Skipping..." %
-                    (size, filename), logging.ERROR, )
+                    f"{size} size does not exist for {filename}. Skipping...", logging.ERROR, )
                 return
             download_size = "original"
 
         download_path = local_download_path(
             photo.filename, download_size, download_dir)
 
+        original_download_path = None
         file_exists = os.path.isfile(download_path)
         if not file_exists and download_size == "original":
             # Deprecation - We used to download files like IMG_1234-original.jpg,
@@ -463,20 +491,21 @@ def main(
 
         if file_exists:
             # for later: this crashes if download-size medium is specified
-            file_size = os.stat(download_path).st_size
+            file_size = os.stat(
+                original_download_path or download_path).st_size
             version = photo.versions[download_size]
             photo_size = version["size"]
             if file_size != photo_size:
                 download_path = path_by_modify_stem(
                     download_path, lambda x: f"{x}-{photo_size}")
                 logger.set_tqdm_description(
-                    "%s deduplicated." % truncate_middle(download_path, 96)
+                    f"{truncate_middle(download_path, 96)} deduplicated."
                 )
                 file_exists = os.path.isfile(download_path)
             if file_exists:
                 counter.increment()
                 logger.set_tqdm_description(
-                    "%s already exists." % truncate_middle(download_path, 96)
+                    f"{truncate_middle(download_path, 96)} already exists."
                 )
 
         if not file_exists:
@@ -486,17 +515,17 @@ def main(
             else:
                 truncated_path = truncate_middle(download_path, 96)
                 logger.set_tqdm_description(
-                    "Downloading %s" %
-                    truncated_path)
+                    f"Downloading {truncated_path}"
+                )
 
                 download_result = download.download_media(
                     icloud, photo, download_path, download_size
                 )
 
                 if download_result:
-                    if set_exif_datetime and photo.filename.lower().endswith(
+                    if set_exif_datetime and clean_filename(photo.filename).lower().endswith(
                             (".jpg", ".jpeg")) and not exif_datetime.get_photo_exif(download_path):
-                        # %Y:%m:%d looks wrong but it's the correct format
+                        # %Y:%m:%d looks wrong, but it's the correct format
                         date_str = created_date.strftime(
                             "%Y-%m-%d %H:%M:%S%z")
                         logger.debug(
@@ -533,22 +562,47 @@ def main(
                             lp_download_path = path_by_modify_stem(
                                 lp_download_path, lambda x: f"{x}-{lp_photo_size}")
                             logger.set_tqdm_description(
-                                "%s deduplicated." %
-                                truncate_middle(
-                                    lp_download_path, 96))
+                                f"{truncate_middle(lp_download_path, 96)} deduplicated."
+                            )
                             lp_file_exists = os.path.isfile(lp_download_path)
                         if lp_file_exists:
                             logger.set_tqdm_description(
-                                "%s already exists."
-                                % truncate_middle(lp_download_path, 96)
+                                f"{truncate_middle(lp_download_path, 96)} already exists."
+
                             )
                     if not lp_file_exists:
                         truncated_path = truncate_middle(lp_download_path, 96)
                         logger.set_tqdm_description(
-                            "Downloading %s" % truncated_path)
+                            f"Downloading {truncated_path}")
                         download.download_media(
                             icloud, photo, lp_download_path, lp_size
                         )
+
+    def delete_photo(photo):
+        """Delete a photo from the iCloud account."""
+        logger.info("Deleting %s", clean_filename(photo.filename))
+        # pylint: disable=W0212
+        url = f"{icloud.photos._service_endpoint}/records/modify?"\
+            f"{urllib.parse.urlencode(icloud.photos.params)}"
+        post_data = json.dumps(
+            {
+                "atomic": True,
+                "desiredKeys": ["isDeleted"],
+                "operations": [{
+                    "operationType": "update",
+                    "record": {
+                        "fields": {'isDeleted': {'value': 1}},
+                        "recordChangeTag": photo._asset_record["recordChangeTag"],
+                        "recordName": photo._asset_record["recordName"],
+                        "recordType": "CPLAsset",
+                    }
+                }],
+                "zoneID": {"zoneName": "PrimarySync"}
+            }
+        )
+        icloud.photos.session.post(
+            url, data=post_data, headers={
+                "Content-type": "application/json"})
 
     consecutive_files_found = Counter(0)
 
@@ -561,11 +615,13 @@ def main(
         try:
             if should_break(consecutive_files_found):
                 logger.tqdm_write(
-                    "Found %d consecutive previously downloaded photos. Exiting" %
-                    until_found)
+                    f"Found {until_found} consecutive previously downloaded photos. Exiting"
+                )
                 break
             item = next(photos_iterator)
             download_photo(consecutive_files_found, item)
+            if delete_after_download:
+                delete_photo(item)
         except StopIteration:
             break
 

@@ -2,8 +2,16 @@
 import os
 from pathlib import Path
 from typing import Callable
-from pyicloud_ipd.services.photos import PhotoAsset
 from pathvalidate.argparse import sanitize_filename
+from pyicloud_ipd.services.photos import PhotoAsset
+
+
+def clean_filename(filename):
+    """Replaces invalid chars in filenames with '_'
+	[willis-patch]: Do nothing here, see `patchPhotoAsset` below
+	"""
+    return filename
+
 
 def local_download_path(filename: str, size: str, download_dir: str) -> str:
     """Returns the full download path, including size"""

@@ -1,38 +1,31 @@
-# This image is mainly used for development and testing
-
-FROM python:3.9 as base
+FROM python:3.11-alpine3.17 as build
 
 WORKDIR /app
-# explicit requirements because runtime does not need ALL dependencies
-COPY requirements-pip.txt .
-COPY requirements.txt .
-RUN pip3 install -r requirements-pip.txt
-RUN pip3 install -r requirements.txt
 
-FROM base as common
-RUN apt-get update && apt-get install -y dos2unix
-RUN mkdir Photos
-COPY requirements*.txt ./
-COPY scripts/install_deps scripts/install_deps
-RUN dos2unix scripts/install_deps
-RUN scripts/install_deps
-COPY . .
-RUN dos2unix scripts/*
 ENV TZ="America/Los_Angeles"
 
-FROM common as test
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 
-RUN scripts/test
-RUN scripts/lint
+RUN set -xe \
+  && apk update \
+  && apk add git curl binutils gcc libc-dev libffi-dev cargo zlib-dev openssl-dev
 
-FROM common as build
+COPY . .
 
-RUN scripts/build
+RUN pip3 install -r requirements-pip.txt -r requirements.txt -r requirements-dev.txt
 
-FROM python:3.9-alpine as runtime
+RUN pyinstaller -y --collect-all keyrings.alt --hidden-import pkgutil --collect-all tzdata icloudpd.py icloud.py
+RUN pyinstaller -y --collect-all keyrings.alt --hidden-import pkgutil --collect-all tzdata icloud.py
+RUN cp dist/icloud/icloud dist/icloudpd/
 
-COPY --from=build /app/dist/* /tmp
-RUN pip3 install /tmp/*.whl
+FROM alpine:3.17 as runtime
 
-# copy from test to ensure test stage runs before runtime stage in buildx
-COPY --from=test /app/.coverage .
+WORKDIR /app
+
+ENV TZ="America/Los_Angeles"
+
+COPY --from=build /app/dist/icloudpd .
+
+RUN set -xe \
+  && ln -s /app/icloudpd /usr/local/bin/icloudpd \
+  && ln -s /app/icloud /usr/local/bin/icloud 
