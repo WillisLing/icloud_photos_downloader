@@ -26,12 +26,9 @@ def autodelete_photos(icloud, folder_structure, directory):
 
         for size in ["original", "medium", "thumb"]:
             # Image (include Live Photo image part)
-            path = os.path.normpath(
+            remove_file(
                 local_download_path(
-                    media.filename, size, download_dir))
-            if os.path.exists(path):
-                logger.info("Deleting %s!", path)
-                os.remove(path)
+                    media.filename, size, download_dir), logger)
             # Live Photo video part
             lp_size = size + "Video"
             if lp_size in media.versions:
@@ -40,9 +37,15 @@ def autodelete_photos(icloud, folder_structure, directory):
                 filename = path_by_replace_stem(lp_fname, Path(
                     media.filename).stem)
                 for enum_fn in [filename, lp_fname]:
-                    lp_path = os.path.normpath(
+                    remove_file(
                         local_download_path(
-                            enum_fn, size, download_dir))
-                    if os.path.exists(lp_path):
-                        logger.info("Deleting %s !", lp_path)
-                        os.remove(lp_path)
+                            enum_fn, size, download_dir), logger)
+
+def remove_file(path, logger):
+    """
+    remove file at path if exists
+    """
+    normpath = os.path.normpath(path)
+    if os.path.exists(normpath):
+        logger.info("Deleting %s!", normpath)
+        os.remove(normpath)
