@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Callable
 from pathvalidate.argparse import sanitize_filename
-from pyicloud_ipd.services.photos import PhotoAsset
+from pyicloud.services.photos import PhotoAsset
 
 
 def clean_filename(filename):
