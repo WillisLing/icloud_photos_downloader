@@ -38,15 +38,18 @@ def path_by_modify_stem(path: str, func: Callable[[str], str]) -> str:
     obj = obj.with_name(new_stem + obj.suffix)
     return str(obj)
 
+
 def path_by_replace_stem(path: str, new_stem: str) -> str:
     """Returns the path with replaced stem"""
     return path_by_modify_stem(path, lambda _: new_stem)
+
 
 # pylint: disable=invalid-name
 def patchPhotoAsset():
     """Patch `PhotoAsset.filename` to ensure filename is valid"""
     # pylint: disable=protected-access
     PhotoAsset._ORIGfilename = PhotoAsset.filename
+
     def _sanitized_filename(self: PhotoAsset) -> str:
         return sanitize_filename(self._ORIGfilename, "_")
     # pylint: enable=protected-access

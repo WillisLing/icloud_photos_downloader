@@ -582,7 +582,7 @@ def main(
         """Delete a photo from the iCloud account."""
         logger.info("Deleting %s", clean_filename(photo.filename))
         # pylint: disable=W0212
-        url = f"{icloud.photos._service_endpoint}/records/modify?"\
+        url = f"{icloud.photos.service_endpoint}/records/modify?"\
             f"{urllib.parse.urlencode(icloud.photos.params)}"
         post_data = json.dumps(
             {

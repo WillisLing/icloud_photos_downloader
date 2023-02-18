@@ -12,6 +12,7 @@ class TwoStepAuthRequiredError(Exception):
     and sends an email notification.
     """
 
+
 def authenticator(domain):
     """Wraping authentication with domain context"""
     def authenticate_(
@@ -33,7 +34,7 @@ def authenticator(domain):
                     username, password,
                     cookie_directory=cookie_directory,
                     client_id=client_id,
-                    )
+                )
                 break
             except pyicloud.exceptions.PyiCloudNoStoredPasswordAvailableException:
                 # Prompt for password if not stored in PyiCloud's keyring
@@ -96,12 +97,15 @@ def request_2sa(icloud, logger):
         "(Use --help to view information about SMTP options.)"
     )
 
+
 def two_factor_authenticate(icloud, logging):
+    """Request Two-factor / Two-step authentication."""
     if icloud.requires_2fa:
         logging.info("Two-factor authentication required.")
-        code = input("Enter the code you received of one of your approved devices: ")
+        code = input(
+            "Enter the code you received of one of your approved devices: ")
         result = icloud.validate_2fa_code(code)
-        logging.info("Code validation result: %s" % result)
+        logging.info(f"Code validation result: {result}")
 
         if not result:
             logging.error("Failed to verify security code")
@@ -110,20 +114,21 @@ def two_factor_authenticate(icloud, logging):
         if not icloud.is_trusted_session:
             logging.warning("Session is not trusted. Requesting trust...")
             result = icloud.trust_session()
-            logging.info("Session trust result %s" % result)
+            logging.info(f"Session trust result {result}")
 
             if not result:
                 logging.error(
+                    # pylint: disable=line-too-long
                     "Failed to request trust. You will likely be prompted for the code again in the coming weeks")
+                    # pylint: enable=line-too-long
     elif icloud.requires_2sa:
-        logging.info("Two-step authentication required. Your trusted devices are:")
+        logging.info(
+            "Two-step authentication required. Your trusted devices are:")
 
         devices = icloud.trusted_devices
         for i, device in enumerate(devices):
-            logging.info(
-                "  %s: %s" % (i, device.get('deviceName',
-                                            "SMS to %s" % device.get('phoneNumber')))
-            )
+            sms_info = f"SMS to {device.get('phoneNumber')}"
+            logging.info(f"  {i}: {device.get('deviceName', sms_info)}")
 
         device = click.prompt('Which device would you like to use?', default=0)
         device = devices[device]
