@@ -2,7 +2,8 @@
 
 - A command-line tool to download all your iCloud photos.
 - Works on Linux, Windows, and MacOS.
-- Run as a [scheduled cron task](#cron-task) to keep a local backup of your photos and videos.
+- Run as executable, docker container, or from the source
+- Run one time or continuously [watch for changes](#watching-icloud-for-changes) to keep a local backup of your photos and videos.
 
 This tool is developed and maintained by volunteers (we are always looking for [help](CONTRIBUTING.md)...). We aim to release new versions once a week (Friday), if there is something worth delivering.
 
@@ -18,7 +19,7 @@ There are three ways to run `icloudpd`:
 Docker automatically pulls images from the remote repository if necessary. To download explicitely, e.g. to force version update, use:
 
 ```sh
-docker pull icloudpd/icloudpd:1.8.1
+docker pull icloudpd/icloudpd:1.11.0
 ```
 
 ### Running from the source
@@ -30,6 +31,10 @@ pip install icloudpd
 ```
 
 > If you need to install Python, see the [Appendix](#appendix) section for instructions.
+
+## Experimental Mode
+
+Some changes added to the experimental mode first before then graduating into main package. [Details](EXPERIMENTAL.md)
 
 ## Usage
 
@@ -98,6 +103,10 @@ Options:
                                   Email address where you would like to
                                   receive email notifications. Default: SMTP
                                   username
+  --notification-email-from <notification_email_from>
+                                  Email address from which you would like to
+                                  receive email notifications. Default: SMTP
+                                  username or notification-email
   --notification-script PATH      Runs an external script when two factor
                                   authentication expires. (path required:
                                   /path/to/my/script.sh)
@@ -114,6 +123,9 @@ Options:
                                   combine with --auto-delete option.
   --domain [com|cn]               What iCloud root domain to use. Use 'cn' for
                                   mainland China (default: 'com')
+  --watch-with-interval INTEGER RANGE
+                                  Run downloading in a infinite cycle, waiting
+                                  specified seconds between runs  [x>=1]                                  
   --version                       Show the version and exit.
   -h, --help                      Show this message and exit.
 ```
@@ -176,9 +188,20 @@ This error often happens because your account hasn't used the iCloud API before,
 
 If you are still seeing this message after 30 minutes, then please [open an issue on GitHub](https://github.com/icloud-photos-downloader/icloud_photos_downloader/issues/new) and post the script output.
 
-## Cron Task
+## Watching iCloud for changes
 
-You can run `icloudpd` using `cron` on platforms that support it:
+Most used scenario is to run `icloudpd` to periodically download new photots from iCloud. This can be achieved with parameter or external `cron` task.
+
+> If you provide SMTP credentials, the script will send an email notification
+> whenever two-step authentication expires.
+
+### With `--watch-with-interval` parameter
+
+You can use `--watch-with-interval` parameter to keep `icloudpd` watching for iCloud changes. `icloudpd` will indefinately repeat downloading instructions with specified pause between them, except for authentication, which is performed only once.
+
+### With Cron task
+
+Alternatively, you can run `icloudpd` using `cron` on platforms that support it:
 
 - copy the example cron script from source tree, e.g. `cp cron_script.sh.example cron_script.sh`
 
@@ -192,12 +215,11 @@ You can run `icloudpd` using `cron` on platforms that support it:
 
 Now the script will run every 6 hours to download any new photos and videos.
 
-> If you provide SMTP credentials, the script will send an email notification
-> whenever two-step authentication expires.
+> `cron` tries to authenticate on each run 
 
 ## Docker
 
-This script is available in a Docker image: `docker pull icloudpd/icloudpd:1.8.1`
+This script is available in a Docker image: `docker pull icloudpd/icloudpd:1.11.0`
 
 Usage (Downloads all photos to ./Photos):
 
@@ -206,7 +228,7 @@ docker run -it --rm --name icloudpd \
     -v $(pwd)/Photos:/data \
     -v $(pwd)/cookies:/cookies \
     -e TZ=America/Los_Angeles \
-    icloudpd/icloudpd:1.8.1 \
+    icloudpd/icloudpd:latest \
     icloudpd --directory /data \
     --cookie-directory /cookies \
     --folder-structure {:%Y/%Y-%m-%d} \
@@ -226,7 +248,7 @@ Building image locally from the source tree:
 
 ```bash
 docker build . -t icloudpd:dev
-docker run -it --rm icloudpd:latest icloudpd --version
+docker run -it --rm icloudpd:dev icloudpd --version
 ```
 
 ## Appendix
