@@ -18,3 +18,5 @@ icloudpd-latest-py2.py3-none-any.whl
 .venv
 venv
 *.spec
+/.BACKUP/
+/.cookie_jar/

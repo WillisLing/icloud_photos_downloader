@@ -1,0 +1,1 @@
+从  https://github.com/WillisLing/pyicloud.git 的 pyicloud-ipd 分支同步

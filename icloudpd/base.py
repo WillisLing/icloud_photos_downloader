@@ -2,6 +2,7 @@
 """Main script that uses Click to parse command-line arguments"""
 from __future__ import print_function
 import os
+from pathlib import Path
 import sys
 import time
 import datetime
@@ -15,7 +16,7 @@ import click
 from tqdm import tqdm
 from tzlocal import get_localzone
 
-from pyicloud_ipd.exceptions import PyiCloudAPIResponseError
+from pyicloud.exceptions import PyiCloudAPIResponseException
 
 from icloudpd.logger import setup_logger
 from icloudpd.authentication import authenticator, TwoStepAuthRequiredError
@@ -24,6 +25,7 @@ from icloudpd.email_notifications import send_2sa_notification
 from icloudpd.string_helpers import truncate_middle
 from icloudpd.autodelete import autodelete_photos
 from icloudpd.paths import clean_filename, local_download_path
+from icloudpd.paths import patchPhotoAsset, path_by_modify_stem, path_by_replace_stem
 from icloudpd import exif_datetime
 # Must import the constants object so that we can mock values in tests.
 from icloudpd import constants
@@ -69,6 +71,14 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     help="Live Photo video size to download (default: original)",
     type=click.Choice(["original", "medium", "thumb"]),
     default="original",
+)
+@click.option(
+    "--live-photo-force-video-name-as-image",
+    help="Force the Live Photo video filename same as image filename. "
+    "In some case, image filename is IMG_1111.HEIC, and video filename is "
+    "IMG_1111_HEVC.MOV, in order to let Live Photo work well in some image viewer, "
+    "the video filename should be IMG_1111.MOV",
+    is_flag=True,
 )
 @click.option(
     "--recent",
@@ -228,6 +238,7 @@ def main(
         cookie_directory,
         size,
         live_photo_size,
+        live_photo_force_video_name_as_image,
         recent,
         until_found,
         album,
@@ -255,6 +266,8 @@ def main(
         watch_with_interval
 ):
     """Download all iCloud photos to a local directory"""
+
+    patchPhotoAsset()
 
     logger = setup_logger()
     if only_print_filenames:
@@ -296,7 +309,7 @@ def main(
                 only_print_filenames,
                 set_exif_datetime,
                 skip_live_photos,
-                live_photo_size),
+                live_photo_force_video_name_as_image),
             directory,
             username,
             password,
@@ -326,6 +339,7 @@ def main(
         )
     )
 
+
 # pylint: disable-msg=too-many-arguments,too-many-statements
 # pylint: disable-msg=too-many-branches,too-many-locals
 
@@ -340,7 +354,7 @@ def download_builder(
         only_print_filenames,
         set_exif_datetime,
         skip_live_photos,
-        live_photo_size):
+        live_photo_force_video_name_as_image):
     """factory for downloader"""
     def state_(icloud):
         def download_photo_(counter, photo):
@@ -397,9 +411,9 @@ def download_builder(
                     }, outfile)
                     # pylint: enable=protected-access
                 print("icloudpd has saved the photo record to: "
-                      "./icloudpd-photo-error.json")
+                    "./icloudpd-photo-error.json")
                 print("Please create a Gist with the contents of this file: "
-                      "https://gist.github.com")
+                    "https://gist.github.com")
                 print(
                     "Then create an issue on GitHub: "
                     "https://github.com/icloud-photos-downloader/icloud_photos_downloader/issues")
@@ -416,7 +430,7 @@ def download_builder(
                 download_size = "original"
 
             download_path = local_download_path(
-                photo, download_size, download_dir)
+                photo.filename, download_size, download_dir)
 
             original_download_path = None
             file_exists = os.path.isfile(download_path)
@@ -424,9 +438,8 @@ def download_builder(
                 # Deprecation - We used to download files like IMG_1234-original.jpg,
                 # so we need to check for these.
                 # Now we match the behavior of iCloud for Windows: IMG_1234.jpg
-                original_download_path = (f"-{size}.").join(
-                    download_path.rsplit(".", 1)
-                )
+                original_download_path = path_by_modify_stem(
+                    download_path, lambda x: f"{x}-{size}")
                 file_exists = os.path.isfile(original_download_path)
 
             if file_exists:
@@ -436,9 +449,8 @@ def download_builder(
                 version = photo.versions[download_size]
                 photo_size = version["size"]
                 if file_size != photo_size:
-                    download_path = (f"-{photo_size}.").join(
-                        download_path.rsplit(".", 1)
-                    )
+                    download_path = path_by_modify_stem(
+                        download_path, lambda x: f"{x}-{photo_size}")
                     logger.set_tqdm_description(
                         f"{truncate_middle(download_path, 96)} deduplicated."
                     )
@@ -467,7 +479,8 @@ def download_builder(
                         if set_exif_datetime and \
                             clean_filename(photo.filename) \
                                 .lower() \
-                                .endswith((".jpg", ".jpeg")) and \
+                                .endswith(
+                                (".jpg", ".jpeg")) and \
                                 not exif_datetime.get_photo_exif(download_path):
                             # %Y:%m:%d looks wrong, but it's the correct format
                             date_str = created_date.strftime(
@@ -488,13 +501,11 @@ def download_builder(
                 lp_size = live_photo_size + "Video"
                 if lp_size in photo.versions:
                     version = photo.versions[lp_size]
-                    filename = version["filename"]
-                    if live_photo_size != "original":
-                        # Add size to filename if not original
-                        filename = filename.replace(
-                            ".MOV", f"-{live_photo_size}.MOV"
-                        )
-                    lp_download_path = os.path.join(download_dir, filename)
+                    lp_fname = version["filename"]
+                    filename = path_by_replace_stem(lp_fname, Path(
+                        photo.filename).stem) if live_photo_force_video_name_as_image else lp_fname
+                    lp_download_path = local_download_path(
+                        filename, live_photo_size, download_dir)
 
                     lp_file_exists = os.path.isfile(lp_download_path)
 
@@ -505,22 +516,19 @@ def download_builder(
                             lp_file_size = os.stat(lp_download_path).st_size
                             lp_photo_size = version["size"]
                             if lp_file_size != lp_photo_size:
-                                lp_download_path = (f"-{lp_photo_size}.").join(
-                                    lp_download_path.rsplit(".", 1)
-                                )
+                                lp_download_path = path_by_modify_stem(
+                                    lp_download_path, lambda x: f"{x}-{lp_photo_size}")
                                 logger.set_tqdm_description(
                                     f"{truncate_middle(lp_download_path, 96)} deduplicated."
                                 )
-                                lp_file_exists = os.path.isfile(
-                                    lp_download_path)
+                                lp_file_exists = os.path.isfile(lp_download_path)
                             if lp_file_exists:
                                 logger.set_tqdm_description(
                                     f"{truncate_middle(lp_download_path, 96)} already exists."
 
                                 )
                         if not lp_file_exists:
-                            truncated_path = truncate_middle(
-                                lp_download_path, 96)
+                            truncated_path = truncate_middle(lp_download_path, 96)
                             logger.set_tqdm_description(
                                 f"Downloading {truncated_path}")
                             download.download_media(
@@ -600,18 +608,18 @@ def core(
         # case exit.
         try:
             photos = icloud.photos.albums[album]
-        except PyiCloudAPIResponseError as err:
+        except PyiCloudAPIResponseException as err:
             # For later: come up with a nicer message to the user. For now take the
             # exception text
             print(err)
-            return 1
+        return 1
 
         if list_albums:
             albums_dict = icloud.photos.albums
             albums = albums_dict.values()  # pragma: no cover
             album_titles = [str(a) for a in albums]
             print(*album_titles, sep="\n")
-            return 0
+        return 0
 
         directory = os.path.normpath(directory)
 
@@ -688,7 +696,7 @@ def core(
             """Delete a photo from the iCloud account."""
             logger.info("Deleting %s", clean_filename(photo.filename))
             # pylint: disable=W0212
-            url = f"{icloud.photos._service_endpoint}/records/modify?"\
+        url = f"{icloud.photos.service_endpoint}/records/modify?"\
                 f"{urllib.parse.urlencode(icloud.photos.params)}"
             post_data = json.dumps(
                 {
@@ -746,5 +754,6 @@ def core(
                 time.sleep(1)
         else:
             break
+
 
     return 0

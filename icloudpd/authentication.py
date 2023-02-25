@@ -2,7 +2,7 @@
 
 import sys
 import click
-import pyicloud_ipd
+import pyicloud
 from icloudpd.logger import setup_logger
 
 
@@ -11,6 +11,7 @@ class TwoStepAuthRequiredError(Exception):
     Raised when 2SA is required. base.py catches this exception
     and sends an email notification.
     """
+
 
 def authenticator(domain):
     """Wraping authentication with domain context"""
@@ -28,14 +29,14 @@ def authenticator(domain):
             try:
                 # If password not provided on command line variable will be set to None
                 # and PyiCloud will attempt to retrieve from its keyring
-                icloud = pyicloud_ipd.PyiCloudService(
+                icloud = pyicloud.PyiCloudService(
                     domain,
                     username, password,
                     cookie_directory=cookie_directory,
                     client_id=client_id,
-                    )
+                )
                 break
-            except pyicloud_ipd.exceptions.NoStoredPasswordAvailable:
+            except pyicloud.exceptions.PyiCloudNoStoredPasswordAvailableException:
                 # Prompt for password if not stored in PyiCloud's keyring
                 password = click.prompt("iCloud Password", hide_input=True)
 
@@ -44,8 +45,7 @@ def authenticator(domain):
                 raise TwoStepAuthRequiredError(
                     "Two-step/two-factor authentication is required!"
                 )
-            logger.info("Two-step/two-factor authentication is required!")
-            request_2sa(icloud, logger)
+        two_factor_authenticate(icloud, logger)
         return icloud
     return authenticate_
 
@@ -96,3 +96,47 @@ def request_2sa(icloud, logger):
         "the two-step authentication expires.\n"
         "(Use --help to view information about SMTP options.)"
     )
+
+
+def two_factor_authenticate(icloud, logging):
+    """Request Two-factor / Two-step authentication."""
+    if icloud.requires_2fa:
+        logging.info("Two-factor authentication required.")
+        code = input(
+            "Enter the code you received of one of your approved devices: ")
+        result = icloud.validate_2fa_code(code)
+        logging.info(f"Code validation result: {result}")
+
+        if not result:
+            logging.error("Failed to verify security code")
+            sys.exit(1)
+
+        if not icloud.is_trusted_session:
+            logging.warning("Session is not trusted. Requesting trust...")
+            result = icloud.trust_session()
+            logging.info(f"Session trust result {result}")
+
+            if not result:
+                logging.error(
+                    # pylint: disable=line-too-long
+                    "Failed to request trust. You will likely be prompted for the code again in the coming weeks")
+                    # pylint: enable=line-too-long
+    elif icloud.requires_2sa:
+        logging.info(
+            "Two-step authentication required. Your trusted devices are:")
+
+        devices = icloud.trusted_devices
+        for i, device in enumerate(devices):
+            sms_info = f"SMS to {device.get('phoneNumber')}"
+            logging.info(f"  {i}: {device.get('deviceName', sms_info)}")
+
+        device = click.prompt('Which device would you like to use?', default=0)
+        device = devices[device]
+        if not icloud.send_verification_code(device):
+            logging.error("Failed to send verification code")
+            sys.exit(1)
+
+        code = click.prompt('Please enter validation code')
+        if not icloud.validate_verification_code(device, code):
+            logging.info("Failed to verify verification code")
+            sys.exit(1)

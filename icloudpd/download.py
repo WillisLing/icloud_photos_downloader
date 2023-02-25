@@ -6,7 +6,7 @@ import time
 import logging
 from tzlocal import get_localzone
 from requests.exceptions import ConnectionError  # pylint: disable=redefined-builtin
-from pyicloud_ipd.exceptions import PyiCloudAPIResponseError
+from pyicloud.exceptions import PyiCloudAPIResponseException
 from icloudpd.logger import setup_logger
 
 # Import the constants object so that we can mock WAIT_SECONDS in tests
@@ -47,16 +47,16 @@ def download_media(icloud, photo, download_path, size):
 
     for retries in range(constants.MAX_RETRIES):
         try:
-            photo_response = photo.download(size)
-            if photo_response:
-                temp_download_path = download_path + ".part"
-                with open(temp_download_path, "wb") as file_obj:
-                    for chunk in photo_response.iter_content(chunk_size=1024):
-                        if chunk:
-                            file_obj.write(chunk)
-                os.rename(temp_download_path, download_path)
-                update_mtime(photo, download_path)
-                return True
+            with photo.download(size) as photo_response:
+                if photo_response:
+                    temp_download_path = download_path + ".part"
+                    with open(temp_download_path, "wb") as file_obj:
+                        for chunk in photo_response.iter_content(chunk_size=1024):
+                            if chunk:
+                                file_obj.write(chunk)
+                    os.rename(temp_download_path, download_path)
+                    update_mtime(photo, download_path)
+                    return True
 
             logger.tqdm_write(
                 f"Could not find URL to download {photo.filename} for size {size}!",
@@ -64,7 +64,7 @@ def download_media(icloud, photo, download_path, size):
             )
             break
 
-        except (ConnectionError, socket.timeout, PyiCloudAPIResponseError) as ex:
+        except (ConnectionError, socket.timeout, PyiCloudAPIResponseException) as ex:
             if "Invalid global session" in str(ex):
                 logger.tqdm_write(
                     "Session error, re-authenticating...",
