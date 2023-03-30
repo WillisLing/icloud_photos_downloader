@@ -18,7 +18,7 @@ setup(
     maintainer="The iCloud Authors",
     maintainer_email=" ",
     license="MIT",
-    packages=find_packages(),
+    packages=find_packages(exclude=['tests', 'tests.*', '*.tests', '*.tests.*']),
     install_requires=required,
     python_requires=">=3.7,<3.12",
     classifiers=[
