@@ -10,7 +10,7 @@ long_description = (this_directory / "README.md").read_text()
 
 setup(
     name="icloudpd",
-    version="1.11.0",
+    version="1.12.0",
     url="https://github.com/icloud-photos-downloader/icloud_photos_downloader",
     description=(
         "icloudpd is a command-line tool to download photos and videos from iCloud."
@@ -28,7 +28,7 @@ setup(
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
     ],
-    entry_points={"console_scripts": ["icloudpd = icloudpd.base:main"]},
+    entry_points={"console_scripts": ["icloudpd = icloudpd.base:main", "icloud = pyicloud_ipd.cmdline:main"]},
     long_description=long_description,
     long_description_content_type='text/markdown'
 )
